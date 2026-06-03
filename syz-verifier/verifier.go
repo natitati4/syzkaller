@@ -203,6 +203,25 @@ func (vrf *Verifier) verifierLoop(ctx context.Context) {
 		// Create requests for all kernels.
 		requests, responses, wg := vrf.createRequests(prog)
 
+		writeLine := func(format string, args ...any) {
+			line := fmt.Sprintf(format, args...)
+			log.Logf(0, "%s", line)
+		}
+		writeLine("")
+		writeLine("Complete Program Sequence:")
+		writeLine("-------------------------------------------")
+		progLines := strings.Split(strings.TrimSpace(string(prog.Serialize())), "\n")
+		for callIdx, call := range prog.Calls {
+			callStr := call.Meta.CallName + "(...)"
+			if callIdx < len(progLines) {
+				callStr = progLines[callIdx]
+			}
+
+			writeLine("[%d] %s", callIdx, callStr)
+			writeLine("")
+		}
+		writeLine("-------------------------------------------")
+
 		// Distribute to all kernels.
 		for kernelID, source := range vrf.sources {
 			source.Submit(requests[kernelID])
@@ -417,7 +436,27 @@ func (vrf *Verifier) compareResults(prog *prog.Prog, responses []*queue.Result) 
 
 		hasMemMismatch, memDetails := vrf.verifyMemoryMismatches(res0.Info, res.Info, vrf.kernels[0].cfg.Name, vrf.kernels[i].cfg.Name)
 		if hasMemMismatch {
-			vrf.logMemoryMismatchSequence(prog, res0.Info, res.Info, vrf.kernels[0].cfg.Name, vrf.kernels[i].cfg.Name, memDetails)
+			log.Logf(0, "Triage mismatch detected between kernel 0 and %d! Running Deep Mode rerun...", i)
+
+			reqs, deepRes, wg := vrf.createTargetedRequests(prog, []int{0, i})
+
+			vrf.sources[0].Submit(reqs[0])
+			vrf.sources[i].Submit(reqs[i])
+			wg.Wait()
+
+			divergentIdx := -1
+			if deepRes[0] != nil && deepRes[i] != nil && deepRes[0].Info != nil && deepRes[i].Info != nil {
+				divergentIdx = vrf.verifyDeepMemoryMismatches(deepRes[0].Info, deepRes[i].Info)
+				if divergentIdx >= 0 {
+					memDetails = fmt.Sprintf("Deep Mode Analysis: Memory diverged at Call [%d]\n\n%s", divergentIdx, memDetails)
+				} else {
+					memDetails = "Deep Mode Analysis: No syscall divergence found despite triage mismatch.\n\n" + memDetails
+				}
+			}
+
+			vrf.logMemoryMismatchSequence(
+				prog, res0.Info, res.Info, vrf.kernels[0].cfg.Name,
+				vrf.kernels[i].cfg.Name, memDetails, divergentIdx)
 		}
 	}
 }
@@ -447,6 +486,33 @@ func (vrf *Verifier) createRequests(prog *prog.Prog) (map[int]*queue.Request, []
 			return true
 		})
 		requests[kernelID] = reqCopy
+	}
+
+	return requests, responses, &wg
+}
+
+func (vrf *Verifier) createTargetedRequests(prog *prog.Prog, targets []int) (map[int]*queue.Request, []*queue.Result, *sync.WaitGroup) {
+	requests := make(map[int]*queue.Request)
+	responses := make([]*queue.Result, len(vrf.sources))
+	var wg sync.WaitGroup
+	wg.Add(len(targets))
+
+	for _, kid := range targets {
+		req := &queue.Request{
+			Type:         flatrpc.RequestTypeProgram,
+			Prog:         prog.Clone(),
+			ReturnError:  true,
+			ReturnOutput: true,
+			ExecOpts:     flatrpc.ExecOptsRawT{ExecFlags: flatrpc.ExecFlagMemCmpDeep},
+		}
+
+		capturedID := kid
+		req.OnDone(func(r *queue.Request, res *queue.Result) bool {
+			responses[capturedID] = res
+			wg.Done()
+			return true
+		})
+		requests[kid] = req
 	}
 
 	return requests, responses, &wg

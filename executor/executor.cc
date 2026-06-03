@@ -103,7 +103,7 @@ struct memory_region {
 	uint64 end;
 	uint32 perms;
 	uint32 memory_hash;
-	char name[128];
+	char name[8];
 	bool readable;
 };
 
@@ -159,7 +159,7 @@ bool IsSet(T flags, T f)
 // prog execution with neither signal nor coverage. Likely 64kb will be enough in that case.
 
 const uint32 kMaxCalls = 64;
-const uint32 kMaxVmas = 256;
+const uint32 kMaxVmas = 64;
 
 struct alignas(8) OutputData {
 	std::atomic<uint32> size;
@@ -169,8 +169,10 @@ struct alignas(8) OutputData {
 	std::atomic<flatbuffers::Offset<flatbuffers::Vector<uint8_t>>> result_offset;
 	std::atomic<uint32> snapshot_vmas_count;
 	std::atomic<uint32> after_vmas_count;
+	std::atomic<uint32> call_vmas_count[kMaxCalls];
 	memory_region snapshot_vmas[kMaxVmas];
 	memory_region after_vmas[kMaxVmas];
+	memory_region call_vmas[kMaxCalls][kMaxVmas];
 	struct {
 		// Call index in the test program (they may be out-of-order is some syscalls block).
 		int index;
@@ -300,6 +302,7 @@ static bool flag_vhci_injection;
 static bool flag_wifi;
 static bool flag_delay_kcov_mmap;
 static bool flag_memcmp;
+static bool flag_memcmp_deep;
 
 static bool flag_collect_cover;
 static bool flag_collect_signal;
@@ -516,7 +519,7 @@ static bool coverage_filter(uint64 pc);
 static rpc::ComparisonRaw convert(const kcov_comparison_t& cmp);
 static flatbuffers::span<uint8_t> finish_output(OutputData* output, int proc_id, uint64 req_id, uint32 num_calls,
 						uint64 elapsed, uint64 freshness, uint32 status, bool hanged,
-						const std::vector<uint8_t>* process_output, bool memcmp_enabled);
+						const std::vector<uint8_t>* process_output, bool memcmp_enabled, bool deep_memcmp_enabled);
 static void parse_execute(const execute_req& req);
 static void parse_handshake(const handshake_req& req);
 
@@ -898,6 +901,7 @@ void parse_execute(const execute_req& req)
 	flag_comparisons = req.exec_flags & (uint64)rpc::ExecFlag::CollectComps;
 	flag_threaded = req.exec_flags & (uint64)rpc::ExecFlag::Threaded;
 	flag_memcmp = req.exec_flags & (uint64)rpc::ExecFlag::MemCmp;
+	flag_memcmp_deep = req.exec_flags & (uint64)rpc::ExecFlag::MemCmpDeep;
 	all_call_signal = req.all_call_signal;
 	all_extra_signal = req.all_extra_signal;
 
@@ -1001,7 +1005,7 @@ void execute_one()
 	read_input(&input_pos); // total number of calls
 
 #if GOOS_linux
-	if (flag_memcmp)
+	if (flag_memcmp || flag_memcmp_deep)
 		raise(SIGSTOP); // Capture "before" snapshot right before starting the syscall execution.
 #endif
 
@@ -1158,6 +1162,12 @@ void execute_one()
 			event_set(&th->done);
 			handle_completion(th);
 		}
+
+#if GOOS_linux
+        if (flag_memcmp_deep)
+            raise(SIGSTOP); // Capture "call" snapshot after every syscall.
+#endif
+
 		memset(&call_props, 0, sizeof(call_props));
 	}
 
@@ -1190,8 +1200,10 @@ void execute_one()
 	}
 
 #if GOOS_linux
-	if (flag_memcmp)
-		raise(SIGSTOP); // Capture "after" snapshot right after all execution finishes.
+	if (flag_memcmp && !flag_memcmp_deep)
+		// Capture "after" snapshot right after all execution finishes (equivalent to
+		// last syscall in deep mode, so no need to capture it in that case).
+		raise(SIGSTOP);
 #endif
 
 #if SYZ_HAVE_CLOSE_FDS
@@ -1584,7 +1596,8 @@ static uint32 collect_child_vmas(pid_t child_pid, memory_region* out, uint32 max
 #endif
 
 flatbuffers::span<uint8_t> finish_output(OutputData* output, int proc_id, uint64 req_id, uint32 num_calls, uint64 elapsed,
-					 uint64 freshness, uint32 status, bool hanged, const std::vector<uint8_t>* process_output, bool memcmp_enabled)
+					 uint64 freshness, uint32 status, bool hanged, const std::vector<uint8_t>* process_output,
+					 bool memcmp_enabled, bool deep_memcmp_enabled)
 {
 	// In snapshot mode the output size is fixed and output_size is always initialized, so use it.
 	int out_size = flag_snapshot ? output_size : output->size.load(std::memory_order_relaxed) ?
@@ -1610,8 +1623,31 @@ flatbuffers::span<uint8_t> finish_output(OutputData* output, int proc_id, uint64
 		}
 		calls[call.index] = call.offset;
 	}
+	std::vector<flatbuffers::Offset<rpc::CallVmasRaw>> call_vmas;
+	if (deep_memcmp_enabled) {
+		call_vmas.reserve(completed);
+		for (uint32_t i = 0; i < completed; i++) {
+			const auto& call = output->calls[i];
+			if (call.index >= 0 && call.index < static_cast<int>(kMaxCalls)) {
+				uint32 vma_count = output->call_vmas_count[call.index].load(std::memory_order_relaxed);
+				if (vma_count > kMaxVmas) vma_count = kMaxVmas;
+
+				std::vector<flatbuffers::Offset<rpc::VmaRaw>> cur_vmas;
+				cur_vmas.reserve(vma_count);
+				for (uint32 v = 0; v < vma_count; v++) {
+					const auto& r = output->call_vmas[call.index][v];
+					auto name_off = fbb.CreateString(r.name);
+					cur_vmas.push_back(rpc::CreateVmaRaw(fbb, r.start, r.end, r.perms, r.memory_hash, name_off));
+				}
+				call_vmas.push_back(rpc::CreateCallVmasRaw(fbb, fbb.CreateVector(cur_vmas)));
+			} else {
+				call_vmas.push_back(rpc::CreateCallVmasRaw(fbb, 0)); 
+			}
+		}
+	}
+
 	flatbuffers::Offset<rpc::ProgInfoRaw> prog_info_off;
-	if (memcmp_enabled) {
+	if (memcmp_enabled || deep_memcmp_enabled) {
 		uint32 snapshot_vmas_count = output->snapshot_vmas_count.load(std::memory_order_relaxed);
 		uint32 after_vmas_count = output->after_vmas_count.load(std::memory_order_relaxed);
 		if (snapshot_vmas_count > kMaxVmas)
@@ -1633,11 +1669,13 @@ flatbuffers::span<uint8_t> finish_output(OutputData* output, int proc_id, uint64
 			after_vmas.push_back(rpc::CreateVmaRaw(fbb, r.start, r.end, r.perms, r.memory_hash, name_off));
 		}
 		prog_info_off = rpc::CreateProgInfoRawDirect(fbb, &calls, &extra, 0,
-							     &snapshot_vmas, &after_vmas, elapsed, freshness);
+							     &snapshot_vmas, &after_vmas, deep_memcmp_enabled ? &call_vmas : nullptr,
+								 elapsed, freshness);
 	} else {
 		prog_info_off = rpc::CreateProgInfoRawDirect(fbb, &calls, &extra, 0,
-							     nullptr, nullptr, elapsed, freshness);
+							     nullptr, nullptr, nullptr, elapsed, freshness);
 	}
+
 	flatbuffers::Offset<flatbuffers::String> error_off = 0;
 	if (status == kFailStatus)
 		error_off = fbb.CreateString("process failed");

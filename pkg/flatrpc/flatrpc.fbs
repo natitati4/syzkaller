@@ -163,6 +163,7 @@ enum ExecFlag : uint64 (bit_flags) {
 	CollectComps,		// collect KCOV comparisons
 	Threaded,		// use multiple threads to mitigate blocked syscalls
 	MemCmp, 		// collect memory comparison data
+	MemCmpDeep,             // collect memory comparison data after every syscall
 }
 
 struct ExecOptsRaw {
@@ -249,6 +250,10 @@ table VmaRaw {
 	name			:string;
 }
 
+table CallVmasRaw {
+	vmas :[VmaRaw];
+}
+
 table ProgInfoRaw {
 	calls			:[CallInfoRaw];
 	// Contains signal and cover collected from background threads.
@@ -257,6 +262,7 @@ table ProgInfoRaw {
 	extra			:CallInfoRaw;
 	snapshot_vmas	:[VmaRaw];
 	after_vmas		:[VmaRaw];
+	call_vmas		:[CallVmasRaw];
 	// Total execution time of the program in nanoseconds.
 	elapsed			:uint64;
 	// Number of programs executed in the same process before this one.

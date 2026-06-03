@@ -87,6 +87,10 @@ struct VmaRaw;
 struct VmaRawBuilder;
 struct VmaRawT;
 
+struct CallVmasRaw;
+struct CallVmasRawBuilder;
+struct CallVmasRawT;
+
 struct ProgInfoRaw;
 struct ProgInfoRawBuilder;
 struct ProgInfoRawT;
@@ -646,19 +650,21 @@ enum class ExecFlag : uint64_t {
   CollectComps = 8ULL,
   Threaded = 16ULL,
   MemCmp = 32ULL,
+  MemCmpDeep = 64ULL,
   NONE = 0,
-  ANY = 63ULL
+  ANY = 127ULL
 };
 FLATBUFFERS_DEFINE_BITMASK_OPERATORS(ExecFlag, uint64_t)
 
-inline const ExecFlag (&EnumValuesExecFlag())[6] {
+inline const ExecFlag (&EnumValuesExecFlag())[7] {
   static const ExecFlag values[] = {
     ExecFlag::CollectSignal,
     ExecFlag::CollectCover,
     ExecFlag::DedupCover,
     ExecFlag::CollectComps,
     ExecFlag::Threaded,
-    ExecFlag::MemCmp
+    ExecFlag::MemCmp,
+    ExecFlag::MemCmpDeep
   };
   return values;
 }
@@ -671,6 +677,7 @@ inline const char *EnumNameExecFlag(ExecFlag e) {
     case ExecFlag::CollectComps: return "CollectComps";
     case ExecFlag::Threaded: return "Threaded";
     case ExecFlag::MemCmp: return "MemCmp";
+    case ExecFlag::MemCmpDeep: return "MemCmpDeep";
     default: return "";
   }
 }
@@ -2441,6 +2448,73 @@ inline ::flatbuffers::Offset<VmaRaw> CreateVmaRawDirect(
 
 ::flatbuffers::Offset<VmaRaw> CreateVmaRaw(::flatbuffers::FlatBufferBuilder &_fbb, const VmaRawT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct CallVmasRawT : public ::flatbuffers::NativeTable {
+  typedef CallVmasRaw TableType;
+  std::vector<std::unique_ptr<rpc::VmaRawT>> vmas{};
+  CallVmasRawT() = default;
+  CallVmasRawT(const CallVmasRawT &o);
+  CallVmasRawT(CallVmasRawT&&) FLATBUFFERS_NOEXCEPT = default;
+  CallVmasRawT &operator=(CallVmasRawT o) FLATBUFFERS_NOEXCEPT;
+};
+
+struct CallVmasRaw FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CallVmasRawT NativeTableType;
+  typedef CallVmasRawBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_VMAS = 4
+  };
+  const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>> *vmas() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>> *>(VT_VMAS);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_VMAS) &&
+           verifier.VerifyVector(vmas()) &&
+           verifier.VerifyVectorOfTables(vmas()) &&
+           verifier.EndTable();
+  }
+  CallVmasRawT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(CallVmasRawT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<CallVmasRaw> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CallVmasRawT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct CallVmasRawBuilder {
+  typedef CallVmasRaw Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_vmas(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>>> vmas) {
+    fbb_.AddOffset(CallVmasRaw::VT_VMAS, vmas);
+  }
+  explicit CallVmasRawBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<CallVmasRaw> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<CallVmasRaw>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<CallVmasRaw> CreateCallVmasRaw(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>>> vmas = 0) {
+  CallVmasRawBuilder builder_(_fbb);
+  builder_.add_vmas(vmas);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<CallVmasRaw> CreateCallVmasRawDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const std::vector<::flatbuffers::Offset<rpc::VmaRaw>> *vmas = nullptr) {
+  auto vmas__ = vmas ? _fbb.CreateVector<::flatbuffers::Offset<rpc::VmaRaw>>(*vmas) : 0;
+  return rpc::CreateCallVmasRaw(
+      _fbb,
+      vmas__);
+}
+
+::flatbuffers::Offset<CallVmasRaw> CreateCallVmasRaw(::flatbuffers::FlatBufferBuilder &_fbb, const CallVmasRawT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct ProgInfoRawT : public ::flatbuffers::NativeTable {
   typedef ProgInfoRaw TableType;
   std::vector<std::unique_ptr<rpc::CallInfoRawT>> calls{};
@@ -2448,6 +2522,7 @@ struct ProgInfoRawT : public ::flatbuffers::NativeTable {
   std::unique_ptr<rpc::CallInfoRawT> extra{};
   std::vector<std::unique_ptr<rpc::VmaRawT>> snapshot_vmas{};
   std::vector<std::unique_ptr<rpc::VmaRawT>> after_vmas{};
+  std::vector<std::unique_ptr<rpc::CallVmasRawT>> call_vmas{};
   uint64_t elapsed = 0;
   uint64_t freshness = 0;
   ProgInfoRawT() = default;
@@ -2465,8 +2540,9 @@ struct ProgInfoRaw FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_EXTRA = 8,
     VT_SNAPSHOT_VMAS = 10,
     VT_AFTER_VMAS = 12,
-    VT_ELAPSED = 14,
-    VT_FRESHNESS = 16
+    VT_CALL_VMAS = 14,
+    VT_ELAPSED = 16,
+    VT_FRESHNESS = 18
   };
   const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::CallInfoRaw>> *calls() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::CallInfoRaw>> *>(VT_CALLS);
@@ -2482,6 +2558,9 @@ struct ProgInfoRaw FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   }
   const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>> *after_vmas() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>> *>(VT_AFTER_VMAS);
+  }
+  const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::CallVmasRaw>> *call_vmas() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<rpc::CallVmasRaw>> *>(VT_CALL_VMAS);
   }
   uint64_t elapsed() const {
     return GetField<uint64_t>(VT_ELAPSED, 0);
@@ -2505,6 +2584,9 @@ struct ProgInfoRaw FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyOffset(verifier, VT_AFTER_VMAS) &&
            verifier.VerifyVector(after_vmas()) &&
            verifier.VerifyVectorOfTables(after_vmas()) &&
+           VerifyOffset(verifier, VT_CALL_VMAS) &&
+           verifier.VerifyVector(call_vmas()) &&
+           verifier.VerifyVectorOfTables(call_vmas()) &&
            VerifyField<uint64_t>(verifier, VT_ELAPSED, 8) &&
            VerifyField<uint64_t>(verifier, VT_FRESHNESS, 8) &&
            verifier.EndTable();
@@ -2533,6 +2615,9 @@ struct ProgInfoRawBuilder {
   void add_after_vmas(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>>> after_vmas) {
     fbb_.AddOffset(ProgInfoRaw::VT_AFTER_VMAS, after_vmas);
   }
+  void add_call_vmas(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::CallVmasRaw>>> call_vmas) {
+    fbb_.AddOffset(ProgInfoRaw::VT_CALL_VMAS, call_vmas);
+  }
   void add_elapsed(uint64_t elapsed) {
     fbb_.AddElement<uint64_t>(ProgInfoRaw::VT_ELAPSED, elapsed, 0);
   }
@@ -2557,11 +2642,13 @@ inline ::flatbuffers::Offset<ProgInfoRaw> CreateProgInfoRaw(
     ::flatbuffers::Offset<rpc::CallInfoRaw> extra = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>>> snapshot_vmas = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::VmaRaw>>> after_vmas = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<rpc::CallVmasRaw>>> call_vmas = 0,
     uint64_t elapsed = 0,
     uint64_t freshness = 0) {
   ProgInfoRawBuilder builder_(_fbb);
   builder_.add_freshness(freshness);
   builder_.add_elapsed(elapsed);
+  builder_.add_call_vmas(call_vmas);
   builder_.add_after_vmas(after_vmas);
   builder_.add_snapshot_vmas(snapshot_vmas);
   builder_.add_extra(extra);
@@ -2577,12 +2664,14 @@ inline ::flatbuffers::Offset<ProgInfoRaw> CreateProgInfoRawDirect(
     ::flatbuffers::Offset<rpc::CallInfoRaw> extra = 0,
     const std::vector<::flatbuffers::Offset<rpc::VmaRaw>> *snapshot_vmas = nullptr,
     const std::vector<::flatbuffers::Offset<rpc::VmaRaw>> *after_vmas = nullptr,
+    const std::vector<::flatbuffers::Offset<rpc::CallVmasRaw>> *call_vmas = nullptr,
     uint64_t elapsed = 0,
     uint64_t freshness = 0) {
   auto calls__ = calls ? _fbb.CreateVector<::flatbuffers::Offset<rpc::CallInfoRaw>>(*calls) : 0;
   auto extra_raw__ = extra_raw ? _fbb.CreateVector<::flatbuffers::Offset<rpc::CallInfoRaw>>(*extra_raw) : 0;
   auto snapshot_vmas__ = snapshot_vmas ? _fbb.CreateVector<::flatbuffers::Offset<rpc::VmaRaw>>(*snapshot_vmas) : 0;
   auto after_vmas__ = after_vmas ? _fbb.CreateVector<::flatbuffers::Offset<rpc::VmaRaw>>(*after_vmas) : 0;
+  auto call_vmas__ = call_vmas ? _fbb.CreateVector<::flatbuffers::Offset<rpc::CallVmasRaw>>(*call_vmas) : 0;
   return rpc::CreateProgInfoRaw(
       _fbb,
       calls__,
@@ -2590,6 +2679,7 @@ inline ::flatbuffers::Offset<ProgInfoRaw> CreateProgInfoRawDirect(
       extra,
       snapshot_vmas__,
       after_vmas__,
+      call_vmas__,
       elapsed,
       freshness);
 }
@@ -3707,6 +3797,42 @@ inline ::flatbuffers::Offset<VmaRaw> CreateVmaRaw(::flatbuffers::FlatBufferBuild
       _name);
 }
 
+inline CallVmasRawT::CallVmasRawT(const CallVmasRawT &o) {
+  vmas.reserve(o.vmas.size());
+  for (const auto &vmas_ : o.vmas) { vmas.emplace_back((vmas_) ? new rpc::VmaRawT(*vmas_) : nullptr); }
+}
+
+inline CallVmasRawT &CallVmasRawT::operator=(CallVmasRawT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(vmas, o.vmas);
+  return *this;
+}
+
+inline CallVmasRawT *CallVmasRaw::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<CallVmasRawT>(new CallVmasRawT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void CallVmasRaw::UnPackTo(CallVmasRawT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = vmas(); if (_e) { _o->vmas.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->vmas[_i]) { _e->Get(_i)->UnPackTo(_o->vmas[_i].get(), _resolver); } else { _o->vmas[_i] = std::unique_ptr<rpc::VmaRawT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->vmas.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<CallVmasRaw> CallVmasRaw::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CallVmasRawT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateCallVmasRaw(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<CallVmasRaw> CreateCallVmasRaw(::flatbuffers::FlatBufferBuilder &_fbb, const CallVmasRawT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const CallVmasRawT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _vmas = _o->vmas.size() ? _fbb.CreateVector<::flatbuffers::Offset<rpc::VmaRaw>> (_o->vmas.size(), [](size_t i, _VectorArgs *__va) { return CreateVmaRaw(*__va->__fbb, __va->__o->vmas[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return rpc::CreateCallVmasRaw(
+      _fbb,
+      _vmas);
+}
+
 inline ProgInfoRawT::ProgInfoRawT(const ProgInfoRawT &o)
       : extra((o.extra) ? new rpc::CallInfoRawT(*o.extra) : nullptr),
         elapsed(o.elapsed),
@@ -3719,6 +3845,8 @@ inline ProgInfoRawT::ProgInfoRawT(const ProgInfoRawT &o)
   for (const auto &snapshot_vmas_ : o.snapshot_vmas) { snapshot_vmas.emplace_back((snapshot_vmas_) ? new rpc::VmaRawT(*snapshot_vmas_) : nullptr); }
   after_vmas.reserve(o.after_vmas.size());
   for (const auto &after_vmas_ : o.after_vmas) { after_vmas.emplace_back((after_vmas_) ? new rpc::VmaRawT(*after_vmas_) : nullptr); }
+  call_vmas.reserve(o.call_vmas.size());
+  for (const auto &call_vmas_ : o.call_vmas) { call_vmas.emplace_back((call_vmas_) ? new rpc::CallVmasRawT(*call_vmas_) : nullptr); }
 }
 
 inline ProgInfoRawT &ProgInfoRawT::operator=(ProgInfoRawT o) FLATBUFFERS_NOEXCEPT {
@@ -3727,6 +3855,7 @@ inline ProgInfoRawT &ProgInfoRawT::operator=(ProgInfoRawT o) FLATBUFFERS_NOEXCEP
   std::swap(extra, o.extra);
   std::swap(snapshot_vmas, o.snapshot_vmas);
   std::swap(after_vmas, o.after_vmas);
+  std::swap(call_vmas, o.call_vmas);
   std::swap(elapsed, o.elapsed);
   std::swap(freshness, o.freshness);
   return *this;
@@ -3746,6 +3875,7 @@ inline void ProgInfoRaw::UnPackTo(ProgInfoRawT *_o, const ::flatbuffers::resolve
   { auto _e = extra(); if (_e) { if(_o->extra) { _e->UnPackTo(_o->extra.get(), _resolver); } else { _o->extra = std::unique_ptr<rpc::CallInfoRawT>(_e->UnPack(_resolver)); } } else if (_o->extra) { _o->extra.reset(); } }
   { auto _e = snapshot_vmas(); if (_e) { _o->snapshot_vmas.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->snapshot_vmas[_i]) { _e->Get(_i)->UnPackTo(_o->snapshot_vmas[_i].get(), _resolver); } else { _o->snapshot_vmas[_i] = std::unique_ptr<rpc::VmaRawT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->snapshot_vmas.resize(0); } }
   { auto _e = after_vmas(); if (_e) { _o->after_vmas.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->after_vmas[_i]) { _e->Get(_i)->UnPackTo(_o->after_vmas[_i].get(), _resolver); } else { _o->after_vmas[_i] = std::unique_ptr<rpc::VmaRawT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->after_vmas.resize(0); } }
+  { auto _e = call_vmas(); if (_e) { _o->call_vmas.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->call_vmas[_i]) { _e->Get(_i)->UnPackTo(_o->call_vmas[_i].get(), _resolver); } else { _o->call_vmas[_i] = std::unique_ptr<rpc::CallVmasRawT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->call_vmas.resize(0); } }
   { auto _e = elapsed(); _o->elapsed = _e; }
   { auto _e = freshness(); _o->freshness = _e; }
 }
@@ -3763,6 +3893,7 @@ inline ::flatbuffers::Offset<ProgInfoRaw> CreateProgInfoRaw(::flatbuffers::FlatB
   auto _extra = _o->extra ? CreateCallInfoRaw(_fbb, _o->extra.get(), _rehasher) : 0;
   auto _snapshot_vmas = _o->snapshot_vmas.size() ? _fbb.CreateVector<::flatbuffers::Offset<rpc::VmaRaw>> (_o->snapshot_vmas.size(), [](size_t i, _VectorArgs *__va) { return CreateVmaRaw(*__va->__fbb, __va->__o->snapshot_vmas[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _after_vmas = _o->after_vmas.size() ? _fbb.CreateVector<::flatbuffers::Offset<rpc::VmaRaw>> (_o->after_vmas.size(), [](size_t i, _VectorArgs *__va) { return CreateVmaRaw(*__va->__fbb, __va->__o->after_vmas[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _call_vmas = _o->call_vmas.size() ? _fbb.CreateVector<::flatbuffers::Offset<rpc::CallVmasRaw>> (_o->call_vmas.size(), [](size_t i, _VectorArgs *__va) { return CreateCallVmasRaw(*__va->__fbb, __va->__o->call_vmas[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _elapsed = _o->elapsed;
   auto _freshness = _o->freshness;
   return rpc::CreateProgInfoRaw(
@@ -3772,6 +3903,7 @@ inline ::flatbuffers::Offset<ProgInfoRaw> CreateProgInfoRaw(::flatbuffers::FlatB
       _extra,
       _snapshot_vmas,
       _after_vmas,
+      _call_vmas,
       _elapsed,
       _freshness);
 }

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/flatrpc"
-	"github.com/google/syzkaller/pkg/hash"
 	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/prog"
 )
@@ -159,8 +158,38 @@ func (vrf *Verifier) verifyMemoryMismatches(info0, info1 *flatrpc.ProgInfoRawT, 
 	return mismatchFound, report.String()
 }
 
+// verifyDeepMemoryMismatches analyzes the Deep Mode CallVmas arrays.
+// It returns the index of the first syscall where memory diverged, or -1 if none found.
+func (vrf *Verifier) verifyDeepMemoryMismatches(info0, info1 *flatrpc.ProgInfoRawT) int {
+	minCalls := min(len(info0.CallVmas), len(info1.CallVmas))
+
+	for i := 0; i < minCalls; i++ {
+		// If a kernel failed to produce VMAs for this call, that's our divergence.
+		if info0.CallVmas[i] == nil || info1.CallVmas[i] == nil {
+			return i
+		}
+
+		vmas0 := mapVMAs(info0.CallVmas[i].Vmas)
+		vmas1 := mapVMAs(info1.CallVmas[i].Vmas)
+
+		for start, v0 := range vmas0 {
+			strategy := getComparisonStrategy(v0.Kind)
+			if strategy == StrategyCrossCompare {
+				if v1, exists := vmas1[start]; exists {
+					if v0.Hash != v1.Hash {
+						return i // Found the exact divergence point.
+					}
+				}
+			}
+		}
+	}
+	return -1
+}
+
 // logMemoryMismatchSequence is a temporary, isolated logger to avoid merge conflicts.
-func (vrf *Verifier) logMemoryMismatchSequence(p *prog.Prog, info0, info1 *flatrpc.ProgInfoRawT, name0, name1 string, details string) {
+func (vrf *Verifier) logMemoryMismatchSequence(
+	p *prog.Prog, info0, info1 *flatrpc.ProgInfoRawT, name0, name1 string,
+	details string, divergentIdx int) {
 	var reportBody strings.Builder
 	writeLine := func(format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
@@ -186,18 +215,25 @@ func (vrf *Verifier) logMemoryMismatchSequence(p *prog.Prog, info0, info1 *flatr
 		if callIdx < len(progLines) {
 			callStr = progLines[callIdx]
 		}
-		writeLine("   [%d] %s", callIdx, callStr)
+		prefix := "   "
+		if callIdx == divergentIdx {
+			prefix = ">>>"
+		}
 
-		// For memory mismatches, we only print flags to see if the call succeeded/failed generally.
+		writeLine("%s [%d] %s", prefix, callIdx, callStr)
+
 		if info0 != nil && info1 != nil && callIdx < len(info0.Calls) && callIdx < len(info1.Calls) {
-			writeLine("        ┌─ %s: flags=0x%x", name0, uint8(info0.Calls[callIdx].Flags))
-			writeLine("        └─ %s: flags=0x%x", name1, uint8(info1.Calls[callIdx].Flags))
+			writeLine("%s      ┌─ %s: flags=0x%x", prefix, name0, uint8(info0.Calls[callIdx].Flags))
+			writeLine("%s      └─ %s: flags=0x%x", prefix, name1, uint8(info1.Calls[callIdx].Flags))
 		}
 		writeLine("")
 	}
 	writeLine("-------------------------------------------")
 
-	progHash := hash.String(p.Serialize())
-	title := fmt.Sprintf("syz-verifier memory mismatch: %s vs %s (%s)", name0, name1, progHash)
+	firstMismatchCall := "unknown"
+	if divergentIdx >= 0 && divergentIdx < len(p.Calls) {
+		firstMismatchCall = p.Calls[divergentIdx].Meta.CallName
+	}
+	title := fmt.Sprintf("syz-verifier memory mismatch: %s vs %s (%s)", name0, name1, firstMismatchCall)
 	vrf.saveMismatchReport(title, reportBody.String())
 }

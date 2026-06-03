@@ -698,24 +698,43 @@ static void loop(void)
 			if (waitpid(-1, &status, WNOHANG | WAIT_FLAGS) == pid) {
 #if SYZ_EXECUTOR
 #if GOOS_linux
-				if (flag_memcmp && WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP) {
+				if ((flag_memcmp || flag_memcmp_deep) && WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP) {
 					times_stopped++;
+
 					const bool is_snapshot = (times_stopped == 1);
-					const bool is_after = (times_stopped == 2);
-					if (!output_data || (!is_snapshot && !is_after)) {
+					const bool is_after = (!flag_memcmp_deep && times_stopped == 2);
+					const bool is_deep_call = (flag_memcmp_deep && times_stopped > 1);
+
+					if (!output_data || (!is_snapshot && !is_after && !is_deep_call)) {
 						if (ptrace(PTRACE_CONT, pid, NULL, NULL) == -1)
 							debug("ptrace CONT failed for pid %d: %s\n", pid, strerror(errno));
 						continue;
 					}
+
 					uint64 hash_start_time = current_time_ms();
-					memory_region* out = is_snapshot ? output_data->snapshot_vmas : output_data->after_vmas;
-					uint32 cnt = collect_child_vmas(pid, out, kMaxVmas);
-					uint64 hash_duration = current_time_ms() - hash_start_time;
+					memory_region* out = nullptr;
+					uint32* out_count = nullptr;
+					
 					if (is_snapshot) {
-						output_data->snapshot_vmas_count = cnt;
-					} else {
-						output_data->after_vmas_count = cnt;
+						out = output_data->snapshot_vmas;
+						out_count = (uint32*)&output_data->snapshot_vmas_count;
+					} else if (is_after) {
+						out = output_data->after_vmas;
+						out_count = (uint32*)&output_data->after_vmas_count;
+					} else if (is_deep_call) {
+						uint32 call_idx = times_stopped - 2; 
+						if (call_idx < kMaxCalls) {
+							out = output_data->call_vmas[call_idx];
+							out_count = (uint32*)&output_data->call_vmas_count[call_idx];
+						}
 					}
+
+					if (out && out_count) {
+						uint32 cnt = collect_child_vmas(pid, out, kMaxVmas);
+						__atomic_store_n(out_count, cnt, __ATOMIC_RELAXED);
+					}
+
+					uint64 hash_duration = current_time_ms() - hash_start_time;
 					if (ptrace(PTRACE_CONT, pid, NULL, NULL) != -1) {
 						last_executed = current_time_ms();
 						start += hash_duration;

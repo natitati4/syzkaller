@@ -465,8 +465,12 @@ private:
 		uint32 num_calls = 0;
 		if (msg_->type == rpc::RequestType::Program)
 			num_calls = read_input(&prog_data);
-		bool memcmp_enabled = (bool)(static_cast<uint64>(msg_->exec_opts->exec_flags()) & static_cast<uint64>(rpc::ExecFlag::MemCmp));
-		auto data = finish_output(resp_mem_, id_, msg_->id, num_calls, elapsed, freshness_++, status, hanged, output, memcmp_enabled);
+		bool memcmp_enabled = (bool)(static_cast<uint64>(msg_->exec_opts->exec_flags()) 
+								   & static_cast<uint64>(rpc::ExecFlag::MemCmp));
+		bool deep_memcmp_enabled = (bool)(static_cast<uint64>(msg_->exec_opts->exec_flags()) 
+								   & static_cast<uint64>(rpc::ExecFlag::MemCmpDeep));
+		auto data = finish_output(resp_mem_, id_, msg_->id, num_calls, elapsed, 
+			freshness_++, status, hanged, output, memcmp_enabled, deep_memcmp_enabled);
 		conn_.Send(data.data(), data.size());
 
 		resp_mem_->Reset();
